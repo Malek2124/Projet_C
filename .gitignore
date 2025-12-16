@@ -1,0 +1,54 @@
+# System files
+.ICEauthority
+.bash*
+.cache/
+.config/
+.gitconfig
+.glade2
+.local/
+.mozilla/
+.pam_environment
+.profile
+.sudo_as_admin_successful
+.xinputrc
+Desktop/
+Documents/
+Downloads/
+Music/
+Pictures/
+Public/
+Templates/
+Videos/
+
+# Downloaded archives
+*.zip
+glade-2.12.2/
+
+# Build artifacts
+*.o
+*.lo
+*.la
+*.al
+.libs
+*.so
+*.so.[0-9]*
+*.a
+*.pyc
+*.pyo
+*.rej
+*.orig
+*.autosave
+*~
+
+# Auto-generated files
+autom4te.cache/
+aclocal.m4
+compile
+config.*
+configure
+depcomp
+install-sh
+missing
+stamp-h1
+Makefile.in
+src/.deps/
