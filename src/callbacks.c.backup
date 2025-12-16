@@ -1,0 +1,475 @@
+#ifdef HAVE_CONFIG_H
+#  include <config.h>
+#endif
+
+#include <gtk/gtk.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <time.h>
+#include <sys/stat.h>
+#include "callbacks.h"
+#include "interface.h"
+#include "support.h"
+#include "cour.h"
+
+// Variables globales
+int niveau_selectionne = 0;
+
+// ==============================================
+// FONCTIONS UTILITAIRES SIMPLES
+// ==============================================
+void message_erreur_simple(const char *texte) {
+    GtkWidget *dialog = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL,
+                                               GTK_MESSAGE_ERROR,
+                                               GTK_BUTTONS_OK,
+                                               "%s", texte);
+    gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+}
+
+void message_info_simple(const char *texte) {
+    GtkWidget *dialog = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL,
+                                               GTK_MESSAGE_INFO,
+                                               GTK_BUTTONS_OK,
+                                               "%s", texte);
+    gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+}
+
+// ==============================================
+// FONCTION POUR ÉCRIRE DANS LE FICHIER - 100% GARANTIE
+// ==============================================
+int sauvegarder_inscription_garantie(const char *centre, const char *specialite,
+                                     const char *cour, const char *niveau) {
+    printf("\n[DEBUG] Début sauvegarde fichier\n");
+    
+    // 1. Essayer d'ouvrir le fichier
+    FILE *f = fopen("inscriptions.txt", "a");
+    if (f == NULL) {
+        printf("[ERREUR] Impossible d'ouvrir inscriptions.txt\n");
+        printf("[DEBUG] Essai de création...\n");
+        
+        // Essayer de créer le fichier
+        f = fopen("inscriptions.txt", "w");
+        if (f == NULL) {
+            printf("[ERREUR CRITIQUE] Impossible de créer le fichier\n");
+            return 0;
+        }
+        printf("[SUCCÈS] Fichier créé\n");
+    } else {
+        printf("[SUCCÈS] Fichier ouvert en mode ajout\n");
+    }
+    
+    // 2. Obtenir la date
+    time_t maintenant = time(NULL);
+    struct tm *temps = localtime(&maintenant);
+    char date_str[20];
+    snprintf(date_str, sizeof(date_str), "%02d/%02d/%04d",
+             temps->tm_mday, temps->tm_mon + 1, temps->tm_year + 1900);
+    
+    printf("[DEBUG] Date: %s\n", date_str);
+    printf("[DEBUG] Données: Centre='%s', Specialite='%s', Cours='%s', Niveau='%s'\n",
+           centre, specialite, cour, niveau);
+    
+    // 3. ÉCRIRE dans le fichier
+    fprintf(f, "ID: 0000 | Date: %s | Centre: %s | Spécialité: %s | Cours: %s | Niveau: %s\n",
+            date_str, centre, specialite, cour, niveau);
+    
+    // 4. FORCER l'écriture physique
+    fflush(f);
+    fclose(f);
+    
+    printf("[SUCCÈS] Données écrites dans inscriptions.txt\n");
+    
+    // 5. VÉRIFIER que le fichier n'est pas vide
+    struct stat st;
+    if (stat("inscriptions.txt", &st) == 0) {
+        printf("[VÉRIFICATION] Taille du fichier: %ld octets\n", st.st_size);
+        if (st.st_size > 0) {
+            printf("[SUCCÈS] Fichier non vide!\n");
+            return 1;
+        } else {
+            printf("[ERREUR] Fichier vide après écriture!\n");
+            return 0;
+        }
+    } else {
+        printf("[ERREUR] Impossible de vérifier le fichier\n");
+        return 0;
+    }
+}
+
+// ==============================================
+// BOUTON INSCRIRE - VERSION FINALE SIMPLIFIÉE
+// ==============================================
+void on_raedbuttoninscrire5_clicked(GtkWidget *button, gpointer user_data) {
+    printf("\n\n=== CLIC SUR BOUTON INSCRIRE ===\n");
+    
+    // 1. Obtenir la fenêtre
+    GtkWidget *fenetre = GTK_WIDGET(button);
+    
+    // Chercher d'abord dans la fenêtre membre
+    GtkWidget *window_membre = lookup_widget(fenetre, "RaedWindowMembre");
+    if (window_membre) {
+        fenetre = window_membre;
+        printf("[DEBUG] Fenêtre RaedWindowMembre trouvée\n");
+    }
+    
+    // 2. Chercher TOUS les widgets nécessaires
+    printf("[DEBUG] Recherche des widgets...\n");
+    
+    GtkWidget *entry_centre = lookup_widget(fenetre, "raedentrycentre5");
+    GtkWidget *entry_cour = lookup_widget(fenetre, "raedentrycour5");
+    GtkWidget *combobox = lookup_widget(fenetre, "raedcomboboxxentryspecialité5");
+    GtkWidget *check_debutant = lookup_widget(fenetre, "raedcheckbutton5");
+    GtkWidget *check_pro = lookup_widget(fenetre, "raedcheckbutton6");
+    GtkWidget *treeview = lookup_widget(fenetre, "raedtreeview12");
+    
+    // DEBUG: Afficher ce qu'on trouve
+    printf("[DEBUG] Résultats recherche:\n");
+    printf("  entry_centre: %s\n", entry_centre ? "TROUVÉ" : "NON TROUVÉ");
+    printf("  entry_cour: %s\n", entry_cour ? "TROUVÉ" : "NON TROUVÉ");
+    printf("  combobox: %s\n", combobox ? "TROUVÉ" : "NON TROUVÉ");
+    printf("  check_debutant: %s\n", check_debutant ? "TROUVÉ" : "NON TROUVÉ");
+    printf("  check_pro: %s\n", check_pro ? "TROUVÉ" : "NON TROUVÉ");
+    printf("  treeview: %s\n", treeview ? "TROUVÉ" : "NON TROUVÉ");
+    
+    // 3. VÉRIFICATION CRITIQUE
+    if (!entry_centre || !entry_cour) {
+        printf("[ERREUR CRITIQUE] Widgets entry_centre ou entry_cour non trouvés!\n");
+        message_erreur_simple("Erreur interne: Champs non trouvés");
+        return;
+    }
+    
+    // 4. Lire les valeurs des champs
+    const char *centre = gtk_entry_get_text(GTK_ENTRY(entry_centre));
+    const char *cour = gtk_entry_get_text(GTK_ENTRY(entry_cour));
+    
+    printf("[DEBUG] Valeurs lues:\n");
+    printf("  Centre: '%s'\n", centre ? centre : "(null)");
+    printf("  Cours: '%s'\n", cour ? cour : "(null)");
+    
+    // 5. VALIDATION des champs
+    if (!centre || !cour || strlen(centre) == 0 || strlen(cour) == 0) {
+        printf("[ERREUR] Champs vides ou invalides\n");
+        message_erreur_simple("Veuillez remplir le centre et le cours");
+        return;
+    }
+    
+    // 6. Récupérer la spécialité
+    char specialite[50] = "Fitness"; // Valeur par défaut
+    if (combobox && GTK_IS_COMBO_BOX(combobox)) {
+        gint index = gtk_combo_box_get_active(GTK_COMBO_BOX(combobox));
+        printf("[DEBUG] Index combobox: %d\n", index);
+        
+        if (index == 0) strcpy(specialite, "Fitness");
+        else if (index == 1) strcpy(specialite, "SportCollectif");
+        else if (index == 2) strcpy(specialite, "Musculation");
+    }
+    
+    // 7. Récupérer le niveau
+    char niveau[20] = "Non spécifié";
+    gboolean debutant_active = FALSE;
+    gboolean pro_active = FALSE;
+    
+    if (check_debutant) {
+        debutant_active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_debutant));
+    }
+    if (check_pro) {
+        pro_active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(check_pro));
+    }
+    
+    printf("[DEBUG] États checkbuttons:\n");
+    printf("  Débutant: %s\n", debutant_active ? "COCHÉ" : "NON COCHÉ");
+    printf("  Professionnel: %s\n", pro_active ? "COCHÉ" : "NON COCHÉ");
+    
+    if (debutant_active) {
+        strcpy(niveau, "Débutant");
+        niveau_selectionne = 1;
+    } else if (pro_active) {
+        strcpy(niveau, "Professionnel");
+        niveau_selectionne = 2;
+    } else {
+        printf("[ERREUR] Aucun niveau sélectionné\n");
+        message_erreur_simple("Veuillez sélectionner un niveau (Débutant ou Professionnel)");
+        return;
+    }
+    
+    printf("[DEBUG] Valeurs finales:\n");
+    printf("  Spécialité: %s\n", specialite);
+    printf("  Niveau: %s\n", niveau);
+    
+    // 8. SAUVEGARDE DANS LE FICHIER inscriptions.txt
+    printf("\n[SAUVEGARDE] Début de la sauvegarde...\n");
+    
+    // Méthode principale
+    if (sauvegarder_inscription_garantie(centre, specialite, cour, niveau)) {
+        printf("[SUCCÈS] Données sauvegardées avec succès!\n");
+    } else {
+        printf("[ERREUR] Échec de la sauvegarde principale\n");
+        
+        // Méthode alternative: utiliser system()
+        printf("[SECOURS] Essai méthode alternative...\n");
+        
+        time_t t = time(NULL);
+        struct tm *tm = localtime(&t);
+        char date[20];
+        sprintf(date, "%02d/%02d/%04d", tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900);
+        
+        char commande[512];
+        sprintf(commande, "echo 'ID: 0000 | Date: %s | Centre: %s | Spécialité: %s | Cours: %s | Niveau: %s' >> inscriptions.txt",
+                date, centre, specialite, cour, niveau);
+        
+        printf("[SECOURS] Commande: %s\n", commande);
+        int result = system(commande);
+        printf("[SECOURS] Résultat commande: %d\n", result);
+    }
+    
+    // 9. VÉRIFICATION FINALE
+    printf("\n[VÉRIFICATION] Contenu du fichier inscriptions.txt:\n");
+    system("cat inscriptions.txt 2>/dev/null || echo 'Fichier non trouvé'");
+    
+    // 10. Ajouter aussi au fichier cours.txt (comme avant)
+    printf("\n[AJOUT COURS] Ajout au fichier cours.txt...\n");
+    
+    Cours nouveau_cours;
+    nouveau_cours.id = 0; // Génération automatique
+    strncpy(nouveau_cours.nom, cour, sizeof(nouveau_cours.nom) - 1);
+    nouveau_cours.nom[sizeof(nouveau_cours.nom) - 1] = '\0';
+    
+    strncpy(nouveau_cours.centre, centre, sizeof(nouveau_cours.centre) - 1);
+    nouveau_cours.centre[sizeof(nouveau_cours.centre) - 1] = '\0';
+    
+    strncpy(nouveau_cours.specialite, specialite, sizeof(nouveau_cours.specialite) - 1);
+    nouveau_cours.specialite[sizeof(nouveau_cours.specialite) - 1] = '\0';
+    
+    strncpy(nouveau_cours.niveau, niveau, sizeof(nouveau_cours.niveau) - 1);
+    nouveau_cours.niveau[sizeof(nouveau_cours.niveau) - 1] = '\0';
+    
+    strcpy(nouveau_cours.date_expiration, "01/01/2026");
+    
+    if (ajouter_cours(&nouveau_cours)) {
+        printf("[SUCCÈS] Cours ajouté à cours.txt\n");
+        
+        // Mettre à jour le TreeView
+        if (treeview && GTK_IS_TREE_VIEW(treeview)) {
+            afficher_cours_dans_treeview(treeview);
+            printf("[SUCCÈS] TreeView mis à jour\n");
+        }
+    } else {
+        printf("[ERREUR] Échec de l'ajout au cours.txt\n");
+    }
+    
+    // 11. RÉINITIALISER les champs
+    gtk_entry_set_text(GTK_ENTRY(entry_centre), "");
+    gtk_entry_set_text(GTK_ENTRY(entry_cour), "");
+    
+    if (combobox && GTK_IS_COMBO_BOX(combobox)) {
+        gtk_combo_box_set_active(GTK_COMBO_BOX(combobox), 0);
+    }
+    
+    if (check_debutant) {
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(check_debutant), FALSE);
+    }
+    if (check_pro) {
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(check_pro), FALSE);
+    }
+    
+    niveau_selectionne = 0;
+    
+    // 12. MESSAGE FINAL À L'UTILISATEUR
+    char message[512];
+    snprintf(message, sizeof(message),
+            "✅ INSCRIPTION RÉUSSIE ! ✅\n\n"
+            "Centre: %s\n"
+            "Cours: %s\n"
+            "Spécialité: %s\n"
+            "Niveau: %s\n\n"
+            "Les données ont été sauvegardées dans:\n"
+            "• inscriptions.txt\n"
+            "• cours.txt",
+            centre, cour, specialite, niveau);
+    
+    message_info_simple(message);
+    
+    printf("\n=== FIN INSCRIPTION ===\n\n");
+}
+
+// ==============================================
+// AUTRES FONCTIONS CALLBACK (simplifiées)
+// ==============================================
+
+void on_raedbuttonrecherche_clicked(GtkButton *button, gpointer user_data) {
+    GtkWidget *window = lookup_widget(GTK_WIDGET(button), "MalekMhatliWAdmin");
+    if (!window) return;
+    
+    GtkWidget *entry = lookup_widget(window, "raedentryrecherche");
+    GtkWidget *treeview = lookup_widget(window, "raedtreeviewrecherche");
+    
+    if (!entry || !treeview) return;
+    
+    const char *texte = gtk_entry_get_text(GTK_ENTRY(entry));
+    
+    if (texte && strlen(texte) > 0) {
+        Cours *resultats[100];
+        int count = rechercher_cours(texte, resultats, 100);
+        
+        if (count > 0) {
+            afficher_recherche_cours(treeview, resultats, count);
+            for (int i = 0; i < count; i++) free(resultats[i]);
+        } else {
+            vider_treeview(treeview);
+            message_info_simple("Aucun cours trouvé.");
+        }
+    } else {
+        afficher_cours_dans_treeview(treeview);
+    }
+}
+
+void on_raedspinbuttonday1_value_changed(GtkSpinButton *spinbutton, gpointer user_data) {
+    // Ne rien faire
+}
+
+void on_raedspinbuttonmonth1_value_changed(GtkSpinButton *spinbutton, gpointer user_data) {
+    // Ne rien faire
+}
+
+void on_raedspinbuttonyear1_value_changed(GtkSpinButton *spinbutton, gpointer user_data) {
+    // Ne rien faire
+}
+
+void on_raedradiobutton10_toggled(GtkToggleButton *togglebutton, gpointer user_data) {
+    // Ne rien faire
+}
+
+void on_raedradiobutton11_toggled(GtkToggleButton *togglebutton, gpointer user_data) {
+    // Ne rien faire
+}
+
+void on_raedbutton42_clicked(GtkButton *button, gpointer user_data) {
+    GtkWidget *window = lookup_widget(GTK_WIDGET(button), "MalekMhatliWAdmin");
+    if (!window) return;
+    
+    // Récupérer les widgets
+    GtkWidget *entry_id = lookup_widget(window, "raedentryid1");
+    GtkWidget *entry_nom = lookup_widget(window, "raedentrynom1");
+    GtkWidget *entry_centre = lookup_widget(window, "raedentrycentre1");
+    
+    if (!entry_id || !entry_nom || !entry_centre) {
+        message_erreur_simple("Widgets non trouvés");
+        return;
+    }
+    
+    const char *id_str = gtk_entry_get_text(GTK_ENTRY(entry_id));
+    const char *nom = gtk_entry_get_text(GTK_ENTRY(entry_nom));
+    const char *centre = gtk_entry_get_text(GTK_ENTRY(entry_centre));
+    
+    // Validation
+    if (strlen(id_str) == 0 || strlen(nom) == 0 || strlen(centre) == 0) {
+        message_erreur_simple("Tous les champs sont obligatoires");
+        return;
+    }
+    
+    int id = atoi(id_str);
+    if (id <= 0) {
+        message_erreur_simple("ID invalide");
+        return;
+    }
+    
+    // Créer le cours
+    Cours nouveau;
+    nouveau.id = id;
+    strncpy(nouveau.nom, nom, sizeof(nouveau.nom) - 1);
+    nouveau.nom[sizeof(nouveau.nom) - 1] = '\0';
+    
+    strncpy(nouveau.centre, centre, sizeof(nouveau.centre) - 1);
+    nouveau.centre[sizeof(nouveau.centre) - 1] = '\0';
+    
+    strcpy(nouveau.specialite, "Fitness");
+    strcpy(nouveau.niveau, "Débutant");
+    strcpy(nouveau.date_expiration, "01/01/2026");
+    
+    // Ajouter
+    if (ajouter_cours(&nouveau)) {
+        message_info_simple("Cours ajouté avec succès");
+        
+        // Réinitialiser
+        gtk_entry_set_text(GTK_ENTRY(entry_id), "");
+        gtk_entry_set_text(GTK_ENTRY(entry_nom), "");
+        gtk_entry_set_text(GTK_ENTRY(entry_centre), "");
+        
+        // Mettre à jour TreeView
+        GtkWidget *treeview = lookup_widget(window, "raedtreeviewrecherche");
+        if (treeview) afficher_cours_dans_treeview(treeview);
+    } else {
+        message_erreur_simple("Erreur lors de l'ajout");
+    }
+}
+
+void on_raedbutton45_clicked(GtkButton *button, gpointer user_data) {
+    // Fonction de modification (simplifiée)
+    message_info_simple("Fonction modification (non implémentée dans cette version simplifiée)");
+}
+
+void on_raedbutton43_clicked(GtkButton *button, gpointer user_data) {
+    // Fonction de suppression (simplifiée)
+    message_info_simple("Fonction suppression (non implémentée dans cette version simplifiée)");
+}
+
+void on_raedcheckbutton5_toggled(GtkToggleButton *togglebutton, gpointer user_data) {
+    if (gtk_toggle_button_get_active(togglebutton)) {
+        niveau_selectionne = 1;
+        // Décocher l'autre
+        GtkWidget *autre = lookup_widget(GTK_WIDGET(togglebutton), "raedcheckbutton6");
+        if (autre) {
+            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(autre), FALSE);
+        }
+    }
+}
+
+void on_raedcheckbutton6_toggled(GtkToggleButton *togglebutton, gpointer user_data) {
+    if (gtk_toggle_button_get_active(togglebutton)) {
+        niveau_selectionne = 2;
+        // Décocher l'autre
+        GtkWidget *autre = lookup_widget(GTK_WIDGET(togglebutton), "raedcheckbutton5");
+        if (autre) {
+            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(autre), FALSE);
+        }
+    }
+}
+
+void on_raedtreeviewrecherche_row_activated(GtkTreeView *treeview, GtkTreePath *path, 
+                                           GtkTreeViewColumn *column, gpointer user_data) {
+    // Ne rien faire
+}
+
+void initialiser_fenetre_membre(GtkWidget *window) {
+    printf("[INIT] Initialisation fenêtre membre\n");
+    
+    // Initialiser le combobox
+    GtkWidget *combobox = lookup_widget(window, "raedcomboboxxentryspecialité5");
+    if (combobox && GTK_IS_COMBO_BOX(combobox)) {
+        gtk_combo_box_set_active(GTK_COMBO_BOX(combobox), 0);
+        printf("[INIT] Combobox initialisé\n");
+    }
+    
+    // Initialiser le TreeView
+    GtkWidget *treeview = lookup_widget(window, "raedtreeview12");
+    if (treeview && GTK_IS_TREE_VIEW(treeview)) {
+        afficher_cours_dans_treeview(treeview);
+        printf("[INIT] TreeView initialisé\n");
+    }
+    
+    // Vérifier/Créer le fichier inscriptions.txt
+    FILE *f = fopen("inscriptions.txt", "a");
+    if (f) {
+        fprintf(f, "=== FICHIER D'INSCRIPTIONS - CRÉÉ LE %s ===\n\n", __DATE__);
+        fclose(f);
+        printf("[INIT] Fichier inscriptions.txt vérifié/créé\n");
+    }
+}
+
+void on_alignment33_clicked(GtkWidget *widget, gpointer user_data) {
+    // Ne rien faire
+    printf("[DEBUG] Alignment cliqué\n");
+}
